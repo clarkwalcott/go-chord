@@ -9,15 +9,15 @@ type closestPreceedingVnodeIterator struct {
 	vn            *localVnode
 	finger_idx    int
 	successor_idx int
-	yielded       map[string]struct{}
+	yielded       map[stringLen]struct{}
 }
 
-func (cp *closestPreceedingVnodeIterator) init(vn *localVnode, key []byte) {
+func (cp *closestPreceedingVnodeIterator) New(vn *localVnode, key []byte) {
 	cp.key = key
 	cp.vn = vn
 	cp.successor_idx = len(vn.successors) - 1
 	cp.finger_idx = len(vn.finger) - 1
-	cp.yielded = make(map[string]struct{})
+	cp.yielded = make(map[stringLen]struct{})
 }
 
 func (cp *closestPreceedingVnodeIterator) Next() *Vnode {
@@ -32,7 +32,7 @@ func (cp *closestPreceedingVnodeIterator) Next() *Vnode {
 		if vn.successors[i] == nil {
 			continue
 		}
-		if _, ok := cp.yielded[vn.successors[i].String()]; ok {
+		if _, ok := cp.yielded[vn.successors[i].StringLen()]; ok {
 			continue
 		}
 		if between(vn.Id, cp.key, vn.successors[i].Id) {
@@ -47,7 +47,7 @@ func (cp *closestPreceedingVnodeIterator) Next() *Vnode {
 		if vn.finger[i] == nil {
 			continue
 		}
-		if _, ok := cp.yielded[vn.finger[i].String()]; ok {
+		if _, ok := cp.yielded[vn.finger[i].StringLen()]; ok {
 			continue
 		}
 		if between(vn.Id, cp.key, vn.finger[i].Id) {
@@ -60,7 +60,7 @@ func (cp *closestPreceedingVnodeIterator) Next() *Vnode {
 	// Determine which node is better
 	if successor_node != nil && finger_node != nil {
 		// Determine the closer node
-		hb := cp.vn.ring.config.hashBits
+		hb := cp.vn.ringLen.config.hashBits
 		closest := closest_preceeding_vnode(successor_node,
 			finger_node, cp.key, hb)
 		if closest == successor_node {
@@ -68,17 +68,17 @@ func (cp *closestPreceedingVnodeIterator) Next() *Vnode {
 		} else {
 			cp.finger_idx--
 		}
-		cp.yielded[closest.String()] = struct{}{}
+		cp.yielded[closest.StringLen()] = struct{}{}
 		return closest
 
 	} else if successor_node != nil {
 		cp.successor_idx--
-		cp.yielded[successor_node.String()] = struct{}{}
+		cp.yielded[successor_node.StringLen()] = struct{}{}
 		return successor_node
 
 	} else if finger_node != nil {
 		cp.finger_idx--
-		cp.yielded[finger_node.String()] = struct{}{}
+		cp.yielded[finger_node.StringLen()] = struct{}{}
 		return finger_node
 	}
 
@@ -87,8 +87,8 @@ func (cp *closestPreceedingVnodeIterator) Next() *Vnode {
 
 // Returns the closest preceeding Vnode to the key
 func closest_preceeding_vnode(a, b *Vnode, key []byte, bits int) *Vnode {
-	a_dist := distance(a.Id, key, bits)
-	b_dist := distance(b.Id, key, bits)
+	a_dist := fwdDistance(a.Id, key, bits)
+	b_dist := fwdDistance(b.Id, key, bits)
 	if a_dist.Cmp(b_dist) <= 0 {
 		return a
 	} else {
@@ -96,22 +96,24 @@ func closest_preceeding_vnode(a, b *Vnode, key []byte, bits int) *Vnode {
 	}
 }
 
-// Computes the forward distance from a to b modulus a ring size
-func distance(a, b []byte, bits int) *big.Int {
-	// Get the ring size
-	var ring big.Int
-	ring.Exp(big.NewInt(2), big.NewInt(int64(bits)), nil)
+// Computes the forward fwdDistance from a to b modulus the ringLen size
+func fwdDistance(a, b []byte, bits int) *big.Int {
+	// Get the size of the array in bits
+	var ringLen *big.Int
+	base := big.NetInt(2)
+	exponent := big.NewInt(int64(bits)), nil)
+	ringLen.Exp(base, exponent)
 
-	// Convert to int
-	var a_int, b_int big.Int
-	(&a_int).SetBytes(a)
-	(&b_int).SetBytes(b)
+	// Convert byte arrays to bigInt
+	var x, y *big.Int
+	x.SetBytes(a)
+	y.SetBytes(b)
 
-	// Compute the distances
-	var dist big.Int
-	(&dist).Sub(&b_int, &a_int)
+	// Compute the fwdDistances: y - x
+	var dist *big.Int
+	dist.Sub(y, x)
 
-	// Distance modulus ring size
-	(&dist).Mod(&dist, &ring)
-	return &dist
+	// fwdDistance modulus ring size
+	dist.Mod(dist, ringLen)
+	return dist
 }

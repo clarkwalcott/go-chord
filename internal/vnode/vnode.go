@@ -13,7 +13,7 @@ func (vn *Vnode) String() string {
 }
 
 // Initializes a local vnode
-func (vn *localVnode) init(idx int) {
+func (vn *localVnode) New(idx int) {
 	// Generate an ID
 	vn.genId(uint16(idx))
 
@@ -253,7 +253,7 @@ func (vn *localVnode) FindSuccessors(n int, key []byte) ([]*Vnode, error) {
 
 	// Try the closest preceeding nodes
 	cp := closestPreceedingVnodeIterator{}
-	cp.init(vn, key)
+	cp.New(vn, key)
 	for {
 		// Get the next closest node
 		closest := cp.Next()

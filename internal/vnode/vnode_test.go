@@ -21,9 +21,9 @@ func makeVnode() *localVnode {
 	return &localVnode{ring: ring}
 }
 
-func TestVnodeInit(t *testing.T) {
+func TestNew(t *testing.T) {
 	vn := makeVnode()
-	vn.init(0)
+	vn.New(0)
 	if vn.Id == nil {
 		t.Fatalf("unexpected nil")
 	}

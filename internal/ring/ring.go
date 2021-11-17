@@ -6,7 +6,7 @@ import (
 	"sort"
 )
 
-func (r *Ring) init(conf *Config, trans Transport) {
+func (r *Ring) New(conf *Config, trans Transport) {
 	// Set our variables
 	r.config = conf
 	r.vnodes = make([]*localVnode, conf.NumVnodes)
