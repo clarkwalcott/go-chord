@@ -7,6 +7,24 @@ import (
 	"time"
 )
 
+// Represents an Vnode, local or remote
+type Vnode struct {
+	Id   []byte // Virtual ID
+	Host string // Host identifier
+}
+
+// Represents a local Vnode
+type localVnode struct {
+	Vnode
+	ring        *Ring
+	successors  []*Vnode
+	finger      []*Vnode
+	last_finger int
+	predecessor *Vnode
+	stabilized  time.Time
+	timer       *time.Timer
+}
+
 // Converts the ID to string
 func (vn *Vnode) String() string {
 	return fmt.Sprintf("%x", vn.Id)
@@ -252,7 +270,7 @@ func (vn *localVnode) FindSuccessors(n int, key []byte) ([]*Vnode, error) {
 	}
 
 	// Try the closest preceeding nodes
-	cp := closestPreceedingVnodeIterator{}
+	cp := closestPrecedingVnodeIterator{}
 	cp.init(vn, key)
 	for {
 		// Get the next closest node

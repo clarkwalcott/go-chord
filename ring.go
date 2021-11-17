@@ -2,9 +2,133 @@ package chord
 
 import (
 	"bytes"
+	"fmt"
 	"log"
 	"sort"
 )
+
+// Stores the state required for a Chord ring
+type Ring struct {
+	config     *Config
+	transport  Transport
+	vnodes     []*localVnode
+	delegateCh chan func()
+	shutdown   chan bool
+}
+
+// Creates a new Chord ring given the config and transport
+func Create(conf *Config, trans Transport) (*Ring, error) {
+	// Initialize the hash bits
+	conf.hashBits = conf.HashFunc().Size() * 8
+
+	// Create and initialize a ring
+	ring := &Ring{}
+	ring.init(conf, trans)
+	ring.setLocalSuccessors()
+	ring.schedule()
+	return ring, nil
+}
+
+// Joins an existing Chord ring
+func Join(conf *Config, trans Transport, existing string) (*Ring, error) {
+	// Initialize the hash bits
+	conf.hashBits = conf.HashFunc().Size() * 8
+
+	// Request a list of Vnodes from the remote host
+	hosts, err := trans.ListVnodes(existing)
+	if err != nil {
+		return nil, err
+	}
+	if hosts == nil || len(hosts) == 0 {
+		return nil, fmt.Errorf("Remote host has no vnodes!")
+	}
+
+	// Create a ring
+	ring := &Ring{}
+	ring.init(conf, trans)
+
+	// Acquire a live successor for each Vnode
+	for _, vn := range ring.vnodes {
+		// Get the nearest remote vnode
+		nearest := nearestVnodeToKey(hosts, vn.Id)
+
+		// Query for a list of successors to this Vnode
+		succs, err := trans.FindSuccessors(nearest, conf.NumSuccessors, vn.Id)
+		if err != nil {
+			return nil, fmt.Errorf("Failed to find successor for vnodes! Got %s", err)
+		}
+		if succs == nil || len(succs) == 0 {
+			return nil, fmt.Errorf("Failed to find successor for vnodes! Got no vnodes!")
+		}
+
+		// Assign the successors
+		for idx, s := range succs {
+			vn.successors[idx] = s
+		}
+	}
+
+	// Start delegate handler
+	if ring.config.Delegate != nil {
+		go ring.delegateHandler()
+	}
+
+	// Do a fast stabilization, will schedule regular execution
+	for _, vn := range ring.vnodes {
+		vn.stabilize()
+	}
+	return ring, nil
+}
+
+// Leaves a given Chord ring and shuts down the local vnodes
+func (r *Ring) Leave() error {
+	// Shutdown the vnodes first to avoid further stabilization runs
+	r.stopVnodes()
+
+	// Instruct each vnode to leave
+	var err error
+	for _, vn := range r.vnodes {
+		err = mergeErrors(err, vn.leave())
+	}
+
+	// Wait for the delegate callbacks to complete
+	r.stopDelegate()
+	return err
+}
+
+// Shutdown shuts down the local processes in a given Chord ring
+// Blocks until all the vnodes terminate.
+func (r *Ring) Shutdown() {
+	r.stopVnodes()
+	r.stopDelegate()
+}
+
+// Does a key lookup for up to N successors of a key
+func (r *Ring) Lookup(n int, key []byte) ([]*Vnode, error) {
+	// Ensure that n is sane
+	if n > r.config.NumSuccessors {
+		return nil, fmt.Errorf("Cannot ask for more successors than NumSuccessors!")
+	}
+
+	// Hash the key
+	h := r.config.HashFunc()
+	h.Write(key)
+	key_hash := h.Sum(nil)
+
+	// Find the nearest local vnode
+	nearest := r.nearestVnode(key_hash)
+
+	// Use the nearest node for the lookup
+	successors, err := nearest.FindSuccessors(n, key_hash)
+	if err != nil {
+		return nil, err
+	}
+
+	// Trim the nil successors
+	for successors[len(successors)-1] == nil {
+		successors = successors[:len(successors)-1]
+	}
+	return successors, nil
+}
 
 func (r *Ring) init(conf *Config, trans Transport) {
 	// Set our variables

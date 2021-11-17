@@ -4,31 +4,31 @@ import (
 	"math/big"
 )
 
-type closestPreceedingVnodeIterator struct {
-	key           []byte
-	vn            *localVnode
-	finger_idx    int
-	successor_idx int
-	yielded       map[string]struct{}
+type closestPrecedingVnodeIterator struct {
+	key          []byte
+	vn           *localVnode
+	fingerIdx    int
+	successorIdx int
+	yielded      map[string]struct{}
 }
 
-func (cp *closestPreceedingVnodeIterator) init(vn *localVnode, key []byte) {
+func (cp *closestPrecedingVnodeIterator) init(vn *localVnode, key []byte) {
 	cp.key = key
 	cp.vn = vn
-	cp.successor_idx = len(vn.successors) - 1
-	cp.finger_idx = len(vn.finger) - 1
+	cp.successorIdx = len(vn.successors) - 1
+	cp.fingerIdx = len(vn.finger) - 1
 	cp.yielded = make(map[string]struct{})
 }
 
-func (cp *closestPreceedingVnodeIterator) Next() *Vnode {
+func (cp *closestPrecedingVnodeIterator) Next() *Vnode {
 	// Try to find each node
-	var successor_node *Vnode
-	var finger_node *Vnode
+	var successorNode *Vnode
+	var fingerNode *Vnode
 
 	// Scan to find the next successor
 	vn := cp.vn
 	var i int
-	for i = cp.successor_idx; i >= 0; i-- {
+	for i = cp.successorIdx; i >= 0; i-- {
 		if vn.successors[i] == nil {
 			continue
 		}
@@ -36,14 +36,14 @@ func (cp *closestPreceedingVnodeIterator) Next() *Vnode {
 			continue
 		}
 		if between(vn.Id, cp.key, vn.successors[i].Id) {
-			successor_node = vn.successors[i]
+			successorNode = vn.successors[i]
 			break
 		}
 	}
-	cp.successor_idx = i
+	cp.successorIdx = i
 
 	// Scan to find the next finger
-	for i = cp.finger_idx; i >= 0; i-- {
+	for i = cp.fingerIdx; i >= 0; i-- {
 		if vn.finger[i] == nil {
 			continue
 		}
@@ -51,45 +51,45 @@ func (cp *closestPreceedingVnodeIterator) Next() *Vnode {
 			continue
 		}
 		if between(vn.Id, cp.key, vn.finger[i].Id) {
-			finger_node = vn.finger[i]
+			fingerNode = vn.finger[i]
 			break
 		}
 	}
-	cp.finger_idx = i
+	cp.fingerIdx = i
 
 	// Determine which node is better
-	if successor_node != nil && finger_node != nil {
+	if successorNode != nil && fingerNode != nil {
 		// Determine the closer node
 		hb := cp.vn.ring.config.hashBits
-		closest := closest_preceeding_vnode(successor_node,
-			finger_node, cp.key, hb)
-		if closest == successor_node {
-			cp.successor_idx--
+		closest := closestPrecedingVnode(successorNode,
+			fingerNode, cp.key, hb)
+		if closest == successorNode {
+			cp.successorIdx--
 		} else {
-			cp.finger_idx--
+			cp.fingerIdx--
 		}
 		cp.yielded[closest.String()] = struct{}{}
 		return closest
 
-	} else if successor_node != nil {
-		cp.successor_idx--
-		cp.yielded[successor_node.String()] = struct{}{}
-		return successor_node
+	} else if successorNode != nil {
+		cp.successorIdx--
+		cp.yielded[successorNode.String()] = struct{}{}
+		return successorNode
 
-	} else if finger_node != nil {
-		cp.finger_idx--
-		cp.yielded[finger_node.String()] = struct{}{}
-		return finger_node
+	} else if fingerNode != nil {
+		cp.fingerIdx--
+		cp.yielded[fingerNode.String()] = struct{}{}
+		return fingerNode
 	}
 
 	return nil
 }
 
 // Returns the closest preceeding Vnode to the key
-func closest_preceeding_vnode(a, b *Vnode, key []byte, bits int) *Vnode {
-	a_dist := distance(a.Id, key, bits)
-	b_dist := distance(b.Id, key, bits)
-	if a_dist.Cmp(b_dist) <= 0 {
+func closestPrecedingVnode(a, b *Vnode, key []byte, bits int) *Vnode {
+	aDist := distance(a.Id, key, bits)
+	bDist := distance(b.Id, key, bits)
+	if aDist.Cmp(bDist) <= 0 {
 		return a
 	} else {
 		return b
@@ -98,20 +98,20 @@ func closest_preceeding_vnode(a, b *Vnode, key []byte, bits int) *Vnode {
 
 // Computes the forward distance from a to b modulus a ring size
 func distance(a, b []byte, bits int) *big.Int {
-	// Get the ring size
-	var ring big.Int
-	ring.Exp(big.NewInt(2), big.NewInt(int64(bits)), nil)
+	// Get the ringLen size in bits
+	var ringLen big.Int
+	ringLen.Exp(big.NewInt(2), big.NewInt(int64(bits)), nil)
 
 	// Convert to int
-	var a_int, b_int big.Int
-	(&a_int).SetBytes(a)
-	(&b_int).SetBytes(b)
+	var x, y big.Int
+	x.SetBytes(a)
+	y.SetBytes(b)
 
-	// Compute the distances
+	// Compute the distance y - x
 	var dist big.Int
-	(&dist).Sub(&b_int, &a_int)
+	dist.Sub(&y, &x)
 
-	// Distance modulus ring size
-	(&dist).Mod(&dist, &ring)
+	// Distance modulus the size of the ring
+	dist.Mod(&dist, &ringLen)
 	return &dist
 }

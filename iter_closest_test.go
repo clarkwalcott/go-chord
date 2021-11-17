@@ -25,7 +25,7 @@ func TestNextClosest(t *testing.T) {
 
 	// Make an iterator
 	k := []byte{32}
-	cp := &closestPreceedingVnodeIterator{}
+	cp := &closestPrecedingVnodeIterator{}
 	cp.init(vn, k)
 
 	// Iterate until we are done
@@ -75,7 +75,7 @@ func TestNextClosestNoSucc(t *testing.T) {
 
 	// Make an iterator
 	k := []byte{32}
-	cp := &closestPreceedingVnodeIterator{}
+	cp := &closestPrecedingVnodeIterator{}
 	cp.init(vn, k)
 
 	// Iterate until we are done
@@ -125,7 +125,7 @@ func TestNextClosestNoFinger(t *testing.T) {
 
 	// Make an iterator
 	k := []byte{32}
-	cp := &closestPreceedingVnodeIterator{}
+	cp := &closestPrecedingVnodeIterator{}
 	cp.init(vn, k)
 
 	// Iterate until we are done
@@ -149,11 +149,11 @@ func TestClosest(t *testing.T) {
 	a := &Vnode{Id: []byte{128}}
 	b := &Vnode{Id: []byte{32}}
 	k := []byte{45}
-	c := closest_preceeding_vnode(a, b, k, 8)
+	c := closestPrecedingVnode(a, b, k, 8)
 	if c != b {
 		t.Fatalf("expect b to be closer!")
 	}
-	c = closest_preceeding_vnode(b, a, k, 8)
+	c = closestPrecedingVnode(b, a, k, 8)
 	if c != b {
 		t.Fatalf("expect b to be closer!")
 	}
