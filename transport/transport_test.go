@@ -1,38 +1,39 @@
-package chord
+package transport
 
 import (
 	"bytes"
+	"github.com/go-chord/vnode"
 	"testing"
 )
 
 type MockVnodeRPC struct {
-	err       error
-	pred      *Vnode
-	not_pred  *Vnode
-	succ_list []*Vnode
-	key       []byte
-	succ      []*Vnode
-	skip      *Vnode
+	err      error
+	pred     *vnode.Vnode
+	notPred  *vnode.Vnode
+	succList []*vnode.Vnode
+	key      []byte
+	succ     []*vnode.Vnode
+	skip     *vnode.Vnode
 }
 
-func (mv *MockVnodeRPC) GetPredecessor() (*Vnode, error) {
+func (mv *MockVnodeRPC) GetPredecessor() (*vnode.Vnode, error) {
 	return mv.pred, mv.err
 }
-func (mv *MockVnodeRPC) Notify(vn *Vnode) ([]*Vnode, error) {
-	mv.not_pred = vn
-	return mv.succ_list, mv.err
+func (mv *MockVnodeRPC) Notify(trans *LocalTransport, vn *vnode.Vnode) ([]*vnode.Vnode, error) {
+	mv.notPred = vn
+	return mv.succList, mv.err
 }
-func (mv *MockVnodeRPC) FindSuccessors(n int, key []byte) ([]*Vnode, error) {
+func (mv *MockVnodeRPC) FindSuccessors(trans *LocalTransport, n int, key []byte) ([]*vnode.Vnode, error) {
 	mv.key = key
 	return mv.succ, mv.err
 }
 
-func (mv *MockVnodeRPC) ClearPredecessor(p *Vnode) error {
+func (mv *MockVnodeRPC) ClearPredecessor(p *vnode.Vnode) error {
 	mv.pred = nil
 	return nil
 }
 
-func (mv *MockVnodeRPC) SkipSuccessor(s *Vnode) error {
+func (mv *MockVnodeRPC) SkipSuccessor(s *vnode.Vnode) error {
 	mv.skip = s
 	return nil
 }
@@ -53,7 +54,7 @@ func TestInitLocalTransport(t *testing.T) {
 
 func TestLocalList(t *testing.T) {
 	l := makeLocal()
-	vn := &Vnode{Id: []byte{1}, Host: "test"}
+	vn := &vnode.Vnode{Id: []byte{1}, Host: "test"}
 	mockVN := &MockVnodeRPC{}
 	l.Register(vn, mockVN)
 
@@ -68,7 +69,7 @@ func TestLocalList(t *testing.T) {
 
 func TestLocalListRemote(t *testing.T) {
 	l := makeLocal()
-	vn := &Vnode{Id: []byte{1}, Host: "test"}
+	vn := &vnode.Vnode{Id: []byte{1}, Host: "test"}
 	mockVN := &MockVnodeRPC{}
 	l.Register(vn, mockVN)
 
@@ -80,7 +81,7 @@ func TestLocalListRemote(t *testing.T) {
 
 func TestLocalPing(t *testing.T) {
 	l := makeLocal()
-	vn := &Vnode{Id: []byte{1}}
+	vn := &vnode.Vnode{Id: []byte{1}}
 	mockVN := &MockVnodeRPC{}
 	l.Register(vn, mockVN)
 	if res, err := l.Ping(vn); !res || err != nil {
@@ -90,12 +91,12 @@ func TestLocalPing(t *testing.T) {
 
 func TestLocalMissingPing(t *testing.T) {
 	l := makeLocal()
-	vn := &Vnode{Id: []byte{2}}
+	vn := &vnode.Vnode{Id: []byte{2}}
 	mockVN := &MockVnodeRPC{}
 	l.Register(vn, mockVN)
 
 	// Print some random node
-	vn2 := &Vnode{Id: []byte{3}}
+	vn2 := &vnode.Vnode{Id: []byte{3}}
 	if res, _ := l.Ping(vn2); res {
 		t.Fatalf("ping succeeded")
 	}
@@ -103,12 +104,12 @@ func TestLocalMissingPing(t *testing.T) {
 
 func TestLocalGetPredecessor(t *testing.T) {
 	l := makeLocal()
-	pred := &Vnode{Id: []byte{10}}
-	vn := &Vnode{Id: []byte{42}}
+	pred := &vnode.Vnode{Id: []byte{10}}
+	vn := &vnode.Vnode{Id: []byte{42}}
 	mockVN := &MockVnodeRPC{pred: pred, err: nil}
 	l.Register(vn, mockVN)
 
-	vn2 := &Vnode{Id: []byte{42}}
+	vn2 := &vnode.Vnode{Id: []byte{42}}
 	res, err := l.GetPredecessor(vn2)
 	if err != nil {
 		t.Fatalf("local GetPredecessor failed")
@@ -117,7 +118,7 @@ func TestLocalGetPredecessor(t *testing.T) {
 		t.Fatalf("got wrong predecessor")
 	}
 
-	unknown := &Vnode{Id: []byte{1}}
+	unknown := &vnode.Vnode{Id: []byte{1}}
 	res, err = l.GetPredecessor(unknown)
 	if err == nil {
 		t.Fatalf("expected error!")
@@ -126,16 +127,16 @@ func TestLocalGetPredecessor(t *testing.T) {
 
 func TestLocalNotify(t *testing.T) {
 	l := makeLocal()
-	suc1 := &Vnode{Id: []byte{10}}
-	suc2 := &Vnode{Id: []byte{20}}
-	suc3 := &Vnode{Id: []byte{30}}
-	succ_list := []*Vnode{suc1, suc2, suc3}
+	suc1 := &vnode.Vnode{Id: []byte{10}}
+	suc2 := &vnode.Vnode{Id: []byte{20}}
+	suc3 := &vnode.Vnode{Id: []byte{30}}
+	succ_list := []*vnode.Vnode{suc1, suc2, suc3}
 
-	mockVN := &MockVnodeRPC{succ_list: succ_list, err: nil}
-	vn := &Vnode{Id: []byte{0}}
+	mockVN := &MockVnodeRPC{succList: succ_list, err: nil}
+	vn := &vnode.Vnode{Id: []byte{0}}
 	l.Register(vn, mockVN)
 
-	self := &Vnode{Id: []byte{60}}
+	self := &vnode.Vnode{Id: []byte{60}}
 	res, err := l.Notify(vn, self)
 	if err != nil {
 		t.Fatalf("local notify failed")
@@ -143,11 +144,11 @@ func TestLocalNotify(t *testing.T) {
 	if res == nil || res[0] != suc1 || res[1] != suc2 || res[2] != suc3 {
 		t.Fatalf("got wrong successor list")
 	}
-	if mockVN.not_pred != self {
+	if mockVN.notPred != self {
 		t.Fatalf("didn't get notified correctly!")
 	}
 
-	unknown := &Vnode{Id: []byte{1}}
+	unknown := &vnode.Vnode{Id: []byte{1}}
 	res, err = l.Notify(unknown, self)
 	if err == nil {
 		t.Fatalf("remote notify should fail")
@@ -156,10 +157,10 @@ func TestLocalNotify(t *testing.T) {
 
 func TestLocalFindSucc(t *testing.T) {
 	l := makeLocal()
-	suc := []*Vnode{&Vnode{Id: []byte{40}}}
+	suc := []*vnode.Vnode{&vnode.Vnode{Id: []byte{40}}}
 
 	mockVN := &MockVnodeRPC{succ: suc, err: nil}
-	vn := &Vnode{Id: []byte{12}}
+	vn := &vnode.Vnode{Id: []byte{12}}
 	l.Register(vn, mockVN)
 
 	key := []byte("test")
@@ -174,7 +175,7 @@ func TestLocalFindSucc(t *testing.T) {
 		t.Fatalf("didn't get key correctly!")
 	}
 
-	unknown := &Vnode{Id: []byte{1}}
+	unknown := &vnode.Vnode{Id: []byte{1}}
 	res, err = l.FindSuccessors(unknown, 1, key)
 	if err == nil {
 		t.Fatalf("remote find should fail")
@@ -183,9 +184,9 @@ func TestLocalFindSucc(t *testing.T) {
 
 func TestLocalClearPred(t *testing.T) {
 	l := makeLocal()
-	pred := &Vnode{Id: []byte{10}}
+	pred := &vnode.Vnode{Id: []byte{10}}
 	mockVN := &MockVnodeRPC{pred: pred}
-	vn := &Vnode{Id: []byte{12}}
+	vn := &vnode.Vnode{Id: []byte{12}}
 	l.Register(vn, mockVN)
 
 	err := l.ClearPredecessor(vn, pred)
@@ -196,7 +197,7 @@ func TestLocalClearPred(t *testing.T) {
 		t.Fatalf("clear failed")
 	}
 
-	unknown := &Vnode{Id: []byte{1}}
+	unknown := &vnode.Vnode{Id: []byte{1}}
 	err = l.ClearPredecessor(unknown, pred)
 	if err == nil {
 		t.Fatalf("remote clear should fail")
@@ -205,12 +206,12 @@ func TestLocalClearPred(t *testing.T) {
 
 func TestLocalSkipSucc(t *testing.T) {
 	l := makeLocal()
-	suc := []*Vnode{&Vnode{Id: []byte{40}}}
+	suc := []*vnode.Vnode{&vnode.Vnode{Id: []byte{40}}}
 	mockVN := &MockVnodeRPC{succ: suc}
-	vn := &Vnode{Id: []byte{12}}
+	vn := &vnode.Vnode{Id: []byte{12}}
 	l.Register(vn, mockVN)
 
-	s := &Vnode{Id: []byte{40}}
+	s := &vnode.Vnode{Id: []byte{40}}
 	err := l.SkipSuccessor(vn, s)
 	if err != nil {
 		t.Fatalf("local Skip failed")
@@ -219,7 +220,7 @@ func TestLocalSkipSucc(t *testing.T) {
 		t.Fatalf("skip failed")
 	}
 
-	unknown := &Vnode{Id: []byte{1}}
+	unknown := &vnode.Vnode{Id: []byte{1}}
 	err = l.SkipSuccessor(unknown, s)
 	if err == nil {
 		t.Fatalf("remote skip should fail")
@@ -228,7 +229,7 @@ func TestLocalSkipSucc(t *testing.T) {
 
 func TestLocalDeregister(t *testing.T) {
 	l := makeLocal()
-	vn := &Vnode{Id: []byte{1}}
+	vn := &vnode.Vnode{Id: []byte{1}}
 	mockVN := &MockVnodeRPC{}
 	l.Register(vn, mockVN)
 	if res, err := l.Ping(vn); !res || err != nil {
@@ -250,7 +251,7 @@ func TestBHList(t *testing.T) {
 
 func TestBHPing(t *testing.T) {
 	bh := BlackholeTransport{}
-	vn := &Vnode{Id: []byte{12}}
+	vn := &vnode.Vnode{Id: []byte{12}}
 	res, err := bh.Ping(vn)
 	if res || err != nil {
 		t.Fatalf("expected fail")
@@ -259,7 +260,7 @@ func TestBHPing(t *testing.T) {
 
 func TestBHGetPred(t *testing.T) {
 	bh := BlackholeTransport{}
-	vn := &Vnode{Id: []byte{12}}
+	vn := &vnode.Vnode{Id: []byte{12}}
 	_, err := bh.GetPredecessor(vn)
 	if err.Error()[:18] != "Failed to connect!" {
 		t.Fatalf("expected fail")
@@ -268,8 +269,8 @@ func TestBHGetPred(t *testing.T) {
 
 func TestBHNotify(t *testing.T) {
 	bh := BlackholeTransport{}
-	vn := &Vnode{Id: []byte{12}}
-	vn2 := &Vnode{Id: []byte{42}}
+	vn := &vnode.Vnode{Id: []byte{12}}
+	vn2 := &vnode.Vnode{Id: []byte{42}}
 	_, err := bh.Notify(vn, vn2)
 	if err.Error()[:18] != "Failed to connect!" {
 		t.Fatalf("expected fail")
@@ -278,7 +279,7 @@ func TestBHNotify(t *testing.T) {
 
 func TestBHFindSuccessors(t *testing.T) {
 	bh := BlackholeTransport{}
-	vn := &Vnode{Id: []byte{12}}
+	vn := &vnode.Vnode{Id: []byte{12}}
 	_, err := bh.FindSuccessors(vn, 1, []byte("test"))
 	if err.Error()[:18] != "Failed to connect!" {
 		t.Fatalf("expected fail")
@@ -287,8 +288,8 @@ func TestBHFindSuccessors(t *testing.T) {
 
 func TestBHClearPred(t *testing.T) {
 	bh := BlackholeTransport{}
-	vn := &Vnode{Id: []byte{12}}
-	s := &Vnode{Id: []byte{50}}
+	vn := &vnode.Vnode{Id: []byte{12}}
+	s := &vnode.Vnode{Id: []byte{50}}
 	err := bh.ClearPredecessor(vn, s)
 	if err.Error()[:18] != "Failed to connect!" {
 		t.Fatalf("expected fail")
@@ -297,8 +298,8 @@ func TestBHClearPred(t *testing.T) {
 
 func TestBHSkipSucc(t *testing.T) {
 	bh := BlackholeTransport{}
-	vn := &Vnode{Id: []byte{12}}
-	s := &Vnode{Id: []byte{50}}
+	vn := &vnode.Vnode{Id: []byte{12}}
+	s := &vnode.Vnode{Id: []byte{50}}
 	err := bh.SkipSuccessor(vn, s)
 	if err.Error()[:18] != "Failed to connect!" {
 		t.Fatalf("expected fail")

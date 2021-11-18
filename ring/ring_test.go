@@ -1,44 +1,31 @@
-package chord
+package ring
 
 import (
 	"bytes"
 	"crypto/sha1"
+	"errors"
+	"github.com/go-chord/transport"
+	"github.com/go-chord/vnode"
 	"runtime"
 	"sort"
 	"testing"
 	"time"
 )
 
-type MockDelegate struct {
-	shutdown bool
-}
-
-func (m *MockDelegate) NewPredecessor(local, remoteNew, remotePrev *Vnode) {
-}
-func (m *MockDelegate) Leaving(local, pred, succ *Vnode) {
-}
-func (m *MockDelegate) PredecessorLeaving(local, remote *Vnode) {
-}
-func (m *MockDelegate) SuccessorLeaving(local, remote *Vnode) {
-}
-func (m *MockDelegate) Shutdown() {
-	m.shutdown = true
-}
-
 type MultiLocalTrans struct {
-	remote Transport
-	hosts  map[string]*LocalTransport
+	remote transport.Transport
+	hosts  map[string]*transport.LocalTransport
 }
 
-func makeMLTransport() *MultiLocalTrans {
-	hosts := make(map[string]*LocalTransport)
-	remote := &BlackholeTransport{}
+func makeMultiLocalTransport() *MultiLocalTrans {
+	hosts := make(map[string]*transport.LocalTransport)
+	remote := &transport.BlackholeTransport{}
 	ml := &MultiLocalTrans{hosts: hosts}
 	ml.remote = remote
 	return ml
 }
 
-func (ml *MultiLocalTrans) ListVnodes(host string) ([]*Vnode, error) {
+func (ml *MultiLocalTrans) ListVnodes(host string) ([]*vnode.Vnode, error) {
 	if local, ok := ml.hosts[host]; ok {
 		return local.ListVnodes(host)
 	}
@@ -46,7 +33,7 @@ func (ml *MultiLocalTrans) ListVnodes(host string) ([]*Vnode, error) {
 }
 
 // Ping a Vnode, check for liveness
-func (ml *MultiLocalTrans) Ping(v *Vnode) (bool, error) {
+func (ml *MultiLocalTrans) Ping(v *vnode.Vnode) (bool, error) {
 	if local, ok := ml.hosts[v.Host]; ok {
 		return local.Ping(v)
 	}
@@ -54,7 +41,7 @@ func (ml *MultiLocalTrans) Ping(v *Vnode) (bool, error) {
 }
 
 // Request a nodes predecessor
-func (ml *MultiLocalTrans) GetPredecessor(v *Vnode) (*Vnode, error) {
+func (ml *MultiLocalTrans) GetPredecessor(v *vnode.Vnode) (*vnode.Vnode, error) {
 	if local, ok := ml.hosts[v.Host]; ok {
 		return local.GetPredecessor(v)
 	}
@@ -62,7 +49,7 @@ func (ml *MultiLocalTrans) GetPredecessor(v *Vnode) (*Vnode, error) {
 }
 
 // Notify our successor of ourselves
-func (ml *MultiLocalTrans) Notify(target, self *Vnode) ([]*Vnode, error) {
+func (ml *MultiLocalTrans) Notify(target, self *vnode.Vnode) ([]*vnode.Vnode, error) {
 	if local, ok := ml.hosts[target.Host]; ok {
 		return local.Notify(target, self)
 	}
@@ -70,7 +57,7 @@ func (ml *MultiLocalTrans) Notify(target, self *Vnode) ([]*Vnode, error) {
 }
 
 // Find a successor
-func (ml *MultiLocalTrans) FindSuccessors(v *Vnode, n int, k []byte) ([]*Vnode, error) {
+func (ml *MultiLocalTrans) FindSuccessors(v *vnode.Vnode, n int, k []byte) ([]*vnode.Vnode, error) {
 	if local, ok := ml.hosts[v.Host]; ok {
 		return local.FindSuccessors(v, n, k)
 	}
@@ -78,7 +65,7 @@ func (ml *MultiLocalTrans) FindSuccessors(v *Vnode, n int, k []byte) ([]*Vnode, 
 }
 
 // Clears a predecessor if it matches a given vnode. Used to leave.
-func (ml *MultiLocalTrans) ClearPredecessor(target, self *Vnode) error {
+func (ml *MultiLocalTrans) ClearPredecessor(target, self *vnode.Vnode) error {
 	if local, ok := ml.hosts[target.Host]; ok {
 		return local.ClearPredecessor(target, self)
 	}
@@ -86,17 +73,17 @@ func (ml *MultiLocalTrans) ClearPredecessor(target, self *Vnode) error {
 }
 
 // Instructs a node to skip a given successor. Used to leave.
-func (ml *MultiLocalTrans) SkipSuccessor(target, self *Vnode) error {
+func (ml *MultiLocalTrans) SkipSuccessor(target, self *vnode.Vnode) error {
 	if local, ok := ml.hosts[target.Host]; ok {
 		return local.SkipSuccessor(target, self)
 	}
 	return ml.remote.SkipSuccessor(target, self)
 }
 
-func (ml *MultiLocalTrans) Register(v *Vnode, o VnodeRPC) {
+func (ml *MultiLocalTrans) Register(v *vnode.Vnode, o transport.VnodeRPC) {
 	local, ok := ml.hosts[v.Host]
 	if !ok {
-		local = InitLocalTransport(nil).(*LocalTransport)
+		local = transport.InitLocalTransport(nil).(*transport.LocalTransport)
 		ml.hosts[v.Host] = local
 	}
 	local.Register(v, o)
@@ -106,44 +93,74 @@ func (ml *MultiLocalTrans) Deregister(host string) {
 	delete(ml.hosts, host)
 }
 
+func fastConf() *Config {
+	conf := DefaultConfig("test")
+	conf.StabilizeMin = 15 * time.Millisecond
+	conf.StabilizeMax = 45 * time.Millisecond
+	return conf
+}
+
 func makeRing() *Ring {
 	conf := &Config{
 		NumVnodes:     5,
 		NumSuccessors: 8,
-		HashFunc:      sha1.New,
-		hashBits:      160,
+		HashFunc:      sha1.New(),
+		HashBits:      160,
 		StabilizeMin:  time.Second,
 		StabilizeMax:  5 * time.Second,
 	}
 
-	ring := &Ring{}
-	ring.init(conf, nil)
+	ring, _ := New(conf, nil)
 	return ring
+}
+
+func TestDefaultConfig(t *testing.T) {
+	conf := DefaultConfig("test")
+	if conf.Hostname != "test" {
+		t.Fatalf("bad hostname")
+	}
+	if conf.NumVnodes != 8 {
+		t.Fatalf("bad num vnodes")
+	}
+	if conf.NumSuccessors != 8 {
+		t.Fatalf("bad num succ")
+	}
+	if conf.HashFunc == nil {
+		t.Fatalf("bad hash")
+	}
+	if conf.HashBits != 160 {
+		t.Fatalf("bad hash bits")
+	}
+	if conf.StabilizeMin != 15*time.Second {
+		t.Fatalf("bad min stable")
+	}
+	if conf.StabilizeMax != 45*time.Second {
+		t.Fatalf("bad max stable")
+	}
 }
 
 func TestRingInit(t *testing.T) {
 	// Create a ring
-	ring := &Ring{}
 	conf := DefaultConfig("test")
-	ring.init(conf, nil)
+	r, err := New(conf, nil)
+	if err != nil {
+		t.Fatalf("expected err to be nil, but got: %+v", err)
+	}
 
 	// Test features
-	if ring.config != conf {
-		t.Fatalf("wrong config")
+	if r.Config != conf {
+		t.Fatalf("bad config")
 	}
-	if ring.transport == nil {
+	if r.Transport == nil {
 		t.Fatalf("missing transport")
 	}
 
 	// Check the vnodes
 	for i := 0; i < conf.NumVnodes; i++ {
-		if ring.vnodes[i] == nil {
+		if r.Vnodes[i] == nil {
 			t.Fatalf("missing vnode!")
 		}
-		if ring.vnodes[i].ring != ring {
-			t.Fatalf("ring missing!")
-		}
-		if ring.vnodes[i].Id == nil {
+		if r.Vnodes[i].Id == nil {
 			t.Fatalf("ID not initialized!")
 		}
 	}
@@ -154,7 +171,7 @@ func TestCreateShutdown(t *testing.T) {
 	time.After(15)
 	conf := fastConf()
 	numGo := runtime.NumGoroutine()
-	r, err := Create(conf, nil)
+	r, err := New(conf, nil)
 	if err != nil {
 		t.Fatalf("unexpected err. %s", err)
 	}
@@ -166,17 +183,16 @@ func TestCreateShutdown(t *testing.T) {
 }
 
 func TestJoin(t *testing.T) {
-	// Create a multi transport
-	ml := makeMLTransport()
+	ml := makeMultiLocalTransport()
 
 	// Create the initial ring
 	conf := fastConf()
-	r, err := Create(conf, ml)
+	r, err := New(conf, ml)
 	if err != nil {
 		t.Fatalf("unexpected err. %s", err)
 	}
 
-	// Create a second ring
+	// New a second ring
 	conf2 := fastConf()
 	conf2.Hostname = "test2"
 	r2, err := Join(conf2, ml, "test")
@@ -190,10 +206,10 @@ func TestJoin(t *testing.T) {
 }
 
 func TestJoinDeadHost(t *testing.T) {
-	// Create a multi transport
-	ml := makeMLTransport()
+	// New a multi transport
+	ml := makeMultiLocalTransport()
 
-	// Create the initial ring
+	// New the initial ring
 	conf := fastConf()
 	_, err := Join(conf, ml, "noop")
 	if err == nil {
@@ -202,17 +218,17 @@ func TestJoinDeadHost(t *testing.T) {
 }
 
 func TestLeave(t *testing.T) {
-	// Create a multi transport
-	ml := makeMLTransport()
+	// New a multi transport
+	ml := makeMultiLocalTransport()
 
-	// Create the initial ring
+	// New the initial ring
 	conf := fastConf()
-	r, err := Create(conf, ml)
+	r, err := New(conf, ml)
 	if err != nil {
 		t.Fatalf("unexpected err. %s", err)
 	}
 
-	// Create a second ring
+	// New a second ring
 	conf2 := fastConf()
 	conf2.Hostname = "test2"
 	r2, err := Join(conf2, ml, "test")
@@ -231,22 +247,22 @@ func TestLeave(t *testing.T) {
 	<-time.After(100 * time.Millisecond)
 
 	// Verify r2 ring is still in tact
-	num := len(r2.vnodes)
-	for idx, vn := range r2.vnodes {
-		if vn.successors[0] != &r2.vnodes[(idx+1)%num].Vnode {
-			t.Fatalf("bad successor! Got:%s:%s", vn.successors[0].Host,
-				vn.successors[0])
+	num := len(r2.Vnodes)
+	for idx, vn := range r2.Vnodes {
+		if vn.Successors[0] != &r2.Vnodes[(idx+1)%num].Vnode {
+			t.Fatalf("bad successor! Got:%s:%s", vn.Successors[0].Host,
+				vn.Successors[0])
 		}
 	}
 }
 
 func TestLookupBadN(t *testing.T) {
-	// Create a multi transport
-	ml := makeMLTransport()
+	// New a multi transport
+	ml := makeMultiLocalTransport()
 
-	// Create the initial ring
+	// New the initial ring
 	conf := fastConf()
-	r, err := Create(conf, ml)
+	r, err := New(conf, ml)
 	if err != nil {
 		t.Fatalf("unexpected err. %s", err)
 	}
@@ -258,17 +274,17 @@ func TestLookupBadN(t *testing.T) {
 }
 
 func TestLookup(t *testing.T) {
-	// Create a multi transport
-	ml := makeMLTransport()
+	// New a multi transport
+	ml := makeMultiLocalTransport()
 
-	// Create the initial ring
+	// New the initial ring
 	conf := fastConf()
-	r, err := Create(conf, ml)
+	r, err := New(conf, ml)
 	if err != nil {
 		t.Fatalf("unexpected err. %s", err)
 	}
 
-	// Create a second ring
+	// New a second ring
 	conf2 := fastConf()
 	conf2.Hostname = "test2"
 	r2, err := Join(conf2, ml, "test")
@@ -311,37 +327,37 @@ func TestRingLen(t *testing.T) {
 func TestRingSort(t *testing.T) {
 	ring := makeRing()
 	sort.Sort(ring)
-	if bytes.Compare(ring.vnodes[0].Id, ring.vnodes[1].Id) != -1 {
+	if bytes.Compare(ring.Vnodes[0].Id, ring.Vnodes[1].Id) != -1 {
 		t.Fatalf("bad sort")
 	}
-	if bytes.Compare(ring.vnodes[1].Id, ring.vnodes[2].Id) != -1 {
+	if bytes.Compare(ring.Vnodes[1].Id, ring.Vnodes[2].Id) != -1 {
 		t.Fatalf("bad sort")
 	}
-	if bytes.Compare(ring.vnodes[2].Id, ring.vnodes[3].Id) != -1 {
+	if bytes.Compare(ring.Vnodes[2].Id, ring.Vnodes[3].Id) != -1 {
 		t.Fatalf("bad sort")
 	}
-	if bytes.Compare(ring.vnodes[3].Id, ring.vnodes[4].Id) != -1 {
+	if bytes.Compare(ring.Vnodes[3].Id, ring.Vnodes[4].Id) != -1 {
 		t.Fatalf("bad sort")
 	}
 }
 
 func TestRingNearest(t *testing.T) {
 	ring := makeRing()
-	ring.vnodes[0].Id = []byte{2}
-	ring.vnodes[1].Id = []byte{4}
-	ring.vnodes[2].Id = []byte{7}
-	ring.vnodes[3].Id = []byte{10}
-	ring.vnodes[4].Id = []byte{14}
+	ring.Vnodes[0].Id = []byte{2}
+	ring.Vnodes[1].Id = []byte{4}
+	ring.Vnodes[2].Id = []byte{7}
+	ring.Vnodes[3].Id = []byte{10}
+	ring.Vnodes[4].Id = []byte{14}
 	key := []byte{6}
 
-	near := ring.nearestVnode(key)
-	if near != ring.vnodes[1] {
+	near := ring.NearestVnode(key)
+	if near != ring.Vnodes[1] {
 		t.Fatalf("got wrong node back!")
 	}
 
 	key = []byte{0}
-	near = ring.nearestVnode(key)
-	if near != ring.vnodes[4] {
+	near = ring.NearestVnode(key)
+	if near != ring.Vnodes[4] {
 		t.Fatalf("got wrong node back!")
 	}
 }
@@ -350,8 +366,8 @@ func TestRingSchedule(t *testing.T) {
 	ring := makeRing()
 	ring.setLocalSuccessors()
 	ring.schedule()
-	for i := 0; i < len(ring.vnodes); i++ {
-		if ring.vnodes[i].timer == nil {
+	for i := 0; i < len(ring.Vnodes); i++ {
+		if ring.Vnodes[i].Timer == nil {
 			t.Fatalf("expected timer!")
 		}
 	}
@@ -361,60 +377,47 @@ func TestRingSchedule(t *testing.T) {
 func TestRingSetLocalSucc(t *testing.T) {
 	ring := makeRing()
 	ring.setLocalSuccessors()
-	for i := 0; i < len(ring.vnodes); i++ {
+	for i := 0; i < len(ring.Vnodes); i++ {
 		for j := 0; j < 4; j++ {
-			if ring.vnodes[i].successors[j] == nil {
+			if ring.Vnodes[i].Successors[j] == nil {
 				t.Fatalf("expected successor!")
 			}
 		}
-		if ring.vnodes[i].successors[4] != nil {
+		if ring.Vnodes[i].Successors[4] != nil {
 			t.Fatalf("should not have 5th successor!")
 		}
 	}
 
 	// Verify the successor manually for node 3
-	vn := ring.vnodes[2]
-	if vn.successors[0] != &ring.vnodes[3].Vnode {
+	vn := ring.Vnodes[2]
+	if vn.Successors[0] != &ring.Vnodes[3].Vnode {
 		t.Fatalf("bad succ!")
 	}
-	if vn.successors[1] != &ring.vnodes[4].Vnode {
+	if vn.Successors[1] != &ring.Vnodes[4].Vnode {
 		t.Fatalf("bad succ!")
 	}
-	if vn.successors[2] != &ring.vnodes[0].Vnode {
+	if vn.Successors[2] != &ring.Vnodes[0].Vnode {
 		t.Fatalf("bad succ!")
 	}
-	if vn.successors[3] != &ring.vnodes[1].Vnode {
+	if vn.Successors[3] != &ring.Vnodes[1].Vnode {
 		t.Fatalf("bad succ!")
 	}
 }
 
-func TestRingDelegate(t *testing.T) {
-	d := &MockDelegate{}
-	ring := makeRing()
-	ring.setLocalSuccessors()
-	ring.config.Delegate = d
-	ring.schedule()
+func TestMergeErrors(t *testing.T) {
+	e1 := errors.New("test1")
+	e2 := errors.New("test2")
 
-	var b bool
-	f := func() {
-		println("run!")
-		b = true
+	if MergeErrors(e1, nil) != e1 {
+		t.Fatalf("bad merge")
 	}
-	ch := ring.invokeDelegate(f)
-	if ch == nil {
-		t.Fatalf("expected chan")
+	if MergeErrors(nil, e1) != e1 {
+		t.Fatalf("bad merge")
 	}
-	select {
-	case <-ch:
-	case <-time.After(time.Second):
-		t.Fatalf("timeout")
+	if MergeErrors(nil, nil) != nil {
+		t.Fatalf("bad merge")
 	}
-	if !b {
-		t.Fatalf("b should be true")
-	}
-
-	ring.stopDelegate()
-	if !d.shutdown {
-		t.Fatalf("delegate did not get shutdown")
+	if MergeErrors(e1, e2).Error() != "test1\ntest2" {
+		t.Fatalf("bad merge")
 	}
 }

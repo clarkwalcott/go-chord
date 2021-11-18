@@ -1,8 +1,9 @@
-package chord
+package transport
 
 import (
 	"encoding/gob"
 	"fmt"
+	"github.com/go-chord/vnode"
 	"log"
 	"net"
 	"sync"
@@ -63,23 +64,23 @@ type tcpBodyString struct {
 	S string
 }
 type tcpBodyVnode struct {
-	Vn *Vnode
+	Vn *vnode.Vnode
 }
 type tcpBodyTwoVnode struct {
-	Target *Vnode
-	Vn     *Vnode
+	Target *vnode.Vnode
+	Vn     *vnode.Vnode
 }
 type tcpBodyFindSuc struct {
-	Target *Vnode
+	Target *vnode.Vnode
 	Num    int
 	Key    []byte
 }
 type tcpBodyVnodeError struct {
-	Vnode *Vnode
+	Vnode *vnode.Vnode
 	Err   error
 }
 type tcpBodyVnodeListError struct {
-	Vnodes []*Vnode
+	Vnodes []*vnode.Vnode
 	Err    error
 }
 type tcpBodyBoolError struct {
@@ -123,7 +124,7 @@ func InitTCPTransport(listen string, timeout time.Duration) (*TCPTransport, erro
 }
 
 // Checks for a local vnode
-func (t *TCPTransport) get(vn *Vnode) (VnodeRPC, bool) {
+func (t *TCPTransport) get(vn *vnode.Vnode) (VnodeRPC, bool) {
 	key := vn.String()
 	t.lock.RLock()
 	defer t.lock.RUnlock()
@@ -200,7 +201,7 @@ func (t *TCPTransport) setupConn(c *net.TCPConn) {
 }
 
 // Gets a list of the vnodes on the box
-func (t *TCPTransport) ListVnodes(host string) ([]*Vnode, error) {
+func (t *TCPTransport) ListVnodes(host string) ([]*vnode.Vnode, error) {
 	// Get a conn
 	out, err := t.getConn(host)
 	if err != nil {
@@ -208,7 +209,7 @@ func (t *TCPTransport) ListVnodes(host string) ([]*Vnode, error) {
 	}
 
 	// Response channels
-	respChan := make(chan []*Vnode, 1)
+	respChan := make(chan []*vnode.Vnode, 1)
 	errChan := make(chan error, 1)
 
 	go func() {
@@ -250,7 +251,7 @@ func (t *TCPTransport) ListVnodes(host string) ([]*Vnode, error) {
 }
 
 // Ping a Vnode, check for liveness
-func (t *TCPTransport) Ping(vn *Vnode) (bool, error) {
+func (t *TCPTransport) Ping(vn *vnode.Vnode) (bool, error) {
 	// Get a conn
 	out, err := t.getConn(vn.Host)
 	if err != nil {
@@ -301,14 +302,14 @@ func (t *TCPTransport) Ping(vn *Vnode) (bool, error) {
 }
 
 // Request a nodes predecessor
-func (t *TCPTransport) GetPredecessor(vn *Vnode) (*Vnode, error) {
+func (t *TCPTransport) GetPredecessor(vn *vnode.Vnode) (*vnode.Vnode, error) {
 	// Get a conn
 	out, err := t.getConn(vn.Host)
 	if err != nil {
 		return nil, err
 	}
 
-	respChan := make(chan *Vnode, 1)
+	respChan := make(chan *vnode.Vnode, 1)
 	errChan := make(chan error, 1)
 
 	go func() {
@@ -351,14 +352,14 @@ func (t *TCPTransport) GetPredecessor(vn *Vnode) (*Vnode, error) {
 }
 
 // Notify our successor of ourselves
-func (t *TCPTransport) Notify(target, self *Vnode) ([]*Vnode, error) {
+func (t *TCPTransport) Notify(target, self *vnode.Vnode) ([]*vnode.Vnode, error) {
 	// Get a conn
 	out, err := t.getConn(target.Host)
 	if err != nil {
 		return nil, err
 	}
 
-	respChan := make(chan []*Vnode, 1)
+	respChan := make(chan []*vnode.Vnode, 1)
 	errChan := make(chan error, 1)
 
 	go func() {
@@ -401,14 +402,14 @@ func (t *TCPTransport) Notify(target, self *Vnode) ([]*Vnode, error) {
 }
 
 // Find a successor
-func (t *TCPTransport) FindSuccessors(vn *Vnode, n int, k []byte) ([]*Vnode, error) {
+func (t *TCPTransport) FindSuccessors(vn *vnode.Vnode, n int, k []byte) ([]*vnode.Vnode, error) {
 	// Get a conn
 	out, err := t.getConn(vn.Host)
 	if err != nil {
 		return nil, err
 	}
 
-	respChan := make(chan []*Vnode, 1)
+	respChan := make(chan []*vnode.Vnode, 1)
 	errChan := make(chan error, 1)
 
 	go func() {
@@ -451,7 +452,7 @@ func (t *TCPTransport) FindSuccessors(vn *Vnode, n int, k []byte) ([]*Vnode, err
 }
 
 // Clears a predecessor if it matches a given vnode. Used to leave.
-func (t *TCPTransport) ClearPredecessor(target, self *Vnode) error {
+func (t *TCPTransport) ClearPredecessor(target, self *vnode.Vnode) error {
 	// Get a conn
 	out, err := t.getConn(target.Host)
 	if err != nil {
@@ -501,7 +502,7 @@ func (t *TCPTransport) ClearPredecessor(target, self *Vnode) error {
 }
 
 // Instructs a node to skip a given successor. Used to leave.
-func (t *TCPTransport) SkipSuccessor(target, self *Vnode) error {
+func (t *TCPTransport) SkipSuccessor(target, self *vnode.Vnode) error {
 	// Get a conn
 	out, err := t.getConn(target.Host)
 	if err != nil {
@@ -551,7 +552,7 @@ func (t *TCPTransport) SkipSuccessor(target, self *Vnode) error {
 }
 
 // Register for an RPC callbacks
-func (t *TCPTransport) Register(v *Vnode, o VnodeRPC) {
+func (t *TCPTransport) Register(v *vnode.Vnode, o VnodeRPC) {
 	key := v.String()
 	t.lock.Lock()
 	t.local[key] = &localRPC{v, o}
@@ -685,7 +686,7 @@ func (t *TCPTransport) handleConn(conn *net.TCPConn) {
 			}
 
 			// Generate all the local clients
-			res := make([]*Vnode, 0, len(t.local))
+			res := make([]*vnode.Vnode, 0, len(t.local))
 
 			// Build list
 			t.lock.RLock()
@@ -810,7 +811,7 @@ func (t *TCPTransport) handleConn(conn *net.TCPConn) {
 }
 
 // Trims the slice to remove nil elements
-func trimSlice(vn []*Vnode) []*Vnode {
+func trimSlice(vn []*vnode.Vnode) []*vnode.Vnode {
 	if vn == nil {
 		return vn
 	}

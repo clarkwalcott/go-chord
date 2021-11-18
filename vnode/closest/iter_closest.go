@@ -1,42 +1,47 @@
-package chord
+package closest
 
 import (
+	"github.com/go-chord/util"
+	"github.com/go-chord/vnode"
 	"math/big"
 )
 
 type closestPrecedingVnodeIterator struct {
 	key          []byte
-	vn           *localVnode
+	vn           *vnode.LocalVnode
 	fingerIdx    int
 	successorIdx int
 	yielded      map[string]struct{}
 }
 
-func (cp *closestPrecedingVnodeIterator) init(vn *localVnode, key []byte) {
+func New(vn *vnode.LocalVnode, key []byte) *closestPrecedingVnodeIterator {
+	cp := closestPrecedingVnodeIterator{}
 	cp.key = key
 	cp.vn = vn
-	cp.successorIdx = len(vn.successors) - 1
-	cp.fingerIdx = len(vn.finger) - 1
+	cp.successorIdx = len(vn.Successors) - 1
+	cp.fingerIdx = len(vn.Finger) - 1
 	cp.yielded = make(map[string]struct{})
+
+	return &cp
 }
 
-func (cp *closestPrecedingVnodeIterator) Next() *Vnode {
+func (cp *closestPrecedingVnodeIterator) Next() *vnode.Vnode {
 	// Try to find each node
-	var successorNode *Vnode
-	var fingerNode *Vnode
+	var successorNode *vnode.Vnode
+	var fingerNode *vnode.Vnode
 
 	// Scan to find the next successor
 	vn := cp.vn
 	var i int
 	for i = cp.successorIdx; i >= 0; i-- {
-		if vn.successors[i] == nil {
+		if vn.Successors[i] == nil {
 			continue
 		}
-		if _, ok := cp.yielded[vn.successors[i].String()]; ok {
+		if _, ok := cp.yielded[vn.Successors[i].String()]; ok {
 			continue
 		}
-		if between(vn.Id, cp.key, vn.successors[i].Id) {
-			successorNode = vn.successors[i]
+		if util.Between(vn.Id, cp.key, vn.Successors[i].Id) {
+			successorNode = vn.Successors[i]
 			break
 		}
 	}
@@ -44,14 +49,14 @@ func (cp *closestPrecedingVnodeIterator) Next() *Vnode {
 
 	// Scan to find the next finger
 	for i = cp.fingerIdx; i >= 0; i-- {
-		if vn.finger[i] == nil {
+		if vn.Finger[i] == nil {
 			continue
 		}
-		if _, ok := cp.yielded[vn.finger[i].String()]; ok {
+		if _, ok := cp.yielded[vn.Finger[i].String()]; ok {
 			continue
 		}
-		if between(vn.Id, cp.key, vn.finger[i].Id) {
-			fingerNode = vn.finger[i]
+		if util.Between(vn.Id, cp.key, vn.Finger[i].Id) {
+			fingerNode = vn.Finger[i]
 			break
 		}
 	}
@@ -60,7 +65,7 @@ func (cp *closestPrecedingVnodeIterator) Next() *Vnode {
 	// Determine which node is better
 	if successorNode != nil && fingerNode != nil {
 		// Determine the closer node
-		hb := cp.vn.ring.config.hashBits
+		hb := cp.vn.HashFunc.Size() * 8
 		closest := closestPrecedingVnode(successorNode,
 			fingerNode, cp.key, hb)
 		if closest == successorNode {
@@ -85,8 +90,8 @@ func (cp *closestPrecedingVnodeIterator) Next() *Vnode {
 	return nil
 }
 
-// Returns the closest preceeding Vnode to the key
-func closestPrecedingVnode(a, b *Vnode, key []byte, bits int) *Vnode {
+// Returns the closest preceding Vnode to the key
+func closestPrecedingVnode(a, b *vnode.Vnode, key []byte, bits int) *vnode.Vnode {
 	aDist := distance(a.Id, key, bits)
 	bDist := distance(b.Id, key, bits)
 	if aDist.Cmp(bDist) <= 0 {

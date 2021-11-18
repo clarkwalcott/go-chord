@@ -1,49 +1,49 @@
-package chord
+package transport
 
 import (
-	"fmt"
+	"github.com/go-chord/vnode"
 	"sync"
 )
 
 // Implements the methods needed for a Chord ring
 type Transport interface {
 	// Gets a list of the vnodes on the box
-	ListVnodes(string) ([]*Vnode, error)
+	ListVnodes(string) ([]*vnode.Vnode, error)
 
-	// Ping a Vnode, check for liveness
-	Ping(*Vnode) (bool, error)
+	// Ping a Vnode, check if it's alive
+	Ping(vn *vnode.Vnode) (bool, error)
 
 	// Request a nodes predecessor
-	GetPredecessor(*Vnode) (*Vnode, error)
+	GetPredecessor(*vnode.Vnode) (*vnode.Vnode, error)
 
 	// Notify our successor of ourselves
-	Notify(target, self *Vnode) ([]*Vnode, error)
+	Notify(target, self *vnode.Vnode) ([]*vnode.Vnode, error)
 
 	// Find a successor
-	FindSuccessors(*Vnode, int, []byte) ([]*Vnode, error)
+	FindSuccessors(*vnode.Vnode, int, []byte) ([]*vnode.Vnode, error)
 
 	// Clears a predecessor if it matches a given vnode. Used to leave.
-	ClearPredecessor(target, self *Vnode) error
+	ClearPredecessor(target, self *vnode.Vnode) error
 
 	// Instructs a node to skip a given successor. Used to leave.
-	SkipSuccessor(target, self *Vnode) error
+	SkipSuccessor(target, self *vnode.Vnode) error
 
 	// Register for an RPC callbacks
-	Register(*Vnode, VnodeRPC)
+	Register(*vnode.Vnode, VnodeRPC)
 }
 
 // These are the methods to invoke on the registered vnodes
 type VnodeRPC interface {
-	GetPredecessor() (*Vnode, error)
-	Notify(*Vnode) ([]*Vnode, error)
-	FindSuccessors(int, []byte) ([]*Vnode, error)
-	ClearPredecessor(*Vnode) error
-	SkipSuccessor(*Vnode) error
+	GetPredecessor() (*vnode.Vnode, error)
+	Notify(*LocalTransport, *vnode.Vnode) ([]*vnode.Vnode, error)
+	FindSuccessors(*LocalTransport, int, []byte) ([]*vnode.Vnode, error)
+	ClearPredecessor(*vnode.Vnode) error
+	SkipSuccessor(*vnode.Vnode) error
 }
 
 // Wraps vnode and object
 type localRPC struct {
-	vnode *Vnode
+	vnode *vnode.Vnode
 	obj   VnodeRPC
 }
 
@@ -69,7 +69,7 @@ func InitLocalTransport(remote Transport) Transport {
 }
 
 // Checks for a local vnode
-func (lt *LocalTransport) get(vn *Vnode) (VnodeRPC, bool) {
+func (lt *LocalTransport) get(vn *vnode.Vnode) (VnodeRPC, bool) {
 	key := vn.String()
 	lt.lock.RLock()
 	defer lt.lock.RUnlock()
@@ -81,11 +81,11 @@ func (lt *LocalTransport) get(vn *Vnode) (VnodeRPC, bool) {
 	}
 }
 
-func (lt *LocalTransport) ListVnodes(host string) ([]*Vnode, error) {
+func (lt *LocalTransport) ListVnodes(host string) ([]*vnode.Vnode, error) {
 	// Check if this is a local host
 	if host == lt.host {
 		// Generate all the local clients
-		res := make([]*Vnode, 0, len(lt.local))
+		res := make([]*vnode.Vnode, 0, len(lt.local))
 
 		// Build list
 		lt.lock.RLock()
@@ -101,7 +101,7 @@ func (lt *LocalTransport) ListVnodes(host string) ([]*Vnode, error) {
 	return lt.remote.ListVnodes(host)
 }
 
-func (lt *LocalTransport) Ping(vn *Vnode) (bool, error) {
+func (lt *LocalTransport) Ping(vn *vnode.Vnode) (bool, error) {
 	// Look for it locally
 	_, ok := lt.get(vn)
 
@@ -114,7 +114,7 @@ func (lt *LocalTransport) Ping(vn *Vnode) (bool, error) {
 	return lt.remote.Ping(vn)
 }
 
-func (lt *LocalTransport) GetPredecessor(vn *Vnode) (*Vnode, error) {
+func (lt *LocalTransport) GetPredecessor(vn *vnode.Vnode) (*vnode.Vnode, error) {
 	// Look for it locally
 	obj, ok := lt.get(vn)
 
@@ -127,33 +127,33 @@ func (lt *LocalTransport) GetPredecessor(vn *Vnode) (*Vnode, error) {
 	return lt.remote.GetPredecessor(vn)
 }
 
-func (lt *LocalTransport) Notify(vn, self *Vnode) ([]*Vnode, error) {
+func (lt *LocalTransport) Notify(vn, self *vnode.Vnode) ([]*vnode.Vnode, error) {
 	// Look for it locally
 	obj, ok := lt.get(vn)
 
 	// If it exists locally, handle it
 	if ok {
-		return obj.Notify(self)
+		return obj.Notify(lt, self)
 	}
 
 	// Pass onto remote
 	return lt.remote.Notify(vn, self)
 }
 
-func (lt *LocalTransport) FindSuccessors(vn *Vnode, n int, key []byte) ([]*Vnode, error) {
+func (lt *LocalTransport) FindSuccessors(vn *vnode.Vnode, n int, key []byte) ([]*vnode.Vnode, error) {
 	// Look for it locally
 	obj, ok := lt.get(vn)
 
 	// If it exists locally, handle it
 	if ok {
-		return obj.FindSuccessors(n, key)
+		return obj.FindSuccessors(lt, n, key)
 	}
 
 	// Pass onto remote
 	return lt.remote.FindSuccessors(vn, n, key)
 }
 
-func (lt *LocalTransport) ClearPredecessor(target, self *Vnode) error {
+func (lt *LocalTransport) ClearPredecessor(target, self *vnode.Vnode) error {
 	// Look for it locally
 	obj, ok := lt.get(target)
 
@@ -166,7 +166,7 @@ func (lt *LocalTransport) ClearPredecessor(target, self *Vnode) error {
 	return lt.remote.ClearPredecessor(target, self)
 }
 
-func (lt *LocalTransport) SkipSuccessor(target, self *Vnode) error {
+func (lt *LocalTransport) SkipSuccessor(target, self *vnode.Vnode) error {
 	// Look for it locally
 	obj, ok := lt.get(target)
 
@@ -179,7 +179,7 @@ func (lt *LocalTransport) SkipSuccessor(target, self *Vnode) error {
 	return lt.remote.SkipSuccessor(target, self)
 }
 
-func (lt *LocalTransport) Register(v *Vnode, o VnodeRPC) {
+func (lt *LocalTransport) Register(v *vnode.Vnode, o VnodeRPC) {
 	// Register local instance
 	key := v.String()
 	lt.lock.Lock()
@@ -191,45 +191,11 @@ func (lt *LocalTransport) Register(v *Vnode, o VnodeRPC) {
 	lt.remote.Register(v, o)
 }
 
-func (lt *LocalTransport) Deregister(v *Vnode) {
+func (lt *LocalTransport) Deregister(v *vnode.Vnode) {
 	key := v.String()
 	lt.lock.Lock()
 	delete(lt.local, key)
 	lt.lock.Unlock()
 }
 
-// BlackholeTransport is used to provide an implemenation of the Transport that
-// does not actually do anything. Any operation will result in an error.
-type BlackholeTransport struct {
-}
 
-func (*BlackholeTransport) ListVnodes(host string) ([]*Vnode, error) {
-	return nil, fmt.Errorf("Failed to connect! Blackhole: %s.", host)
-}
-
-func (*BlackholeTransport) Ping(vn *Vnode) (bool, error) {
-	return false, nil
-}
-
-func (*BlackholeTransport) GetPredecessor(vn *Vnode) (*Vnode, error) {
-	return nil, fmt.Errorf("Failed to connect! Blackhole: %s.", vn.String())
-}
-
-func (*BlackholeTransport) Notify(vn, self *Vnode) ([]*Vnode, error) {
-	return nil, fmt.Errorf("Failed to connect! Blackhole: %s", vn.String())
-}
-
-func (*BlackholeTransport) FindSuccessors(vn *Vnode, n int, key []byte) ([]*Vnode, error) {
-	return nil, fmt.Errorf("Failed to connect! Blackhole: %s", vn.String())
-}
-
-func (*BlackholeTransport) ClearPredecessor(target, self *Vnode) error {
-	return fmt.Errorf("Failed to connect! Blackhole: %s", target.String())
-}
-
-func (*BlackholeTransport) SkipSuccessor(target, self *Vnode) error {
-	return fmt.Errorf("Failed to connect! Blackhole: %s", target.String())
-}
-
-func (*BlackholeTransport) Register(v *Vnode, o VnodeRPC) {
-}

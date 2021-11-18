@@ -1,23 +1,20 @@
-package chord
+package util
 
 import (
 	"bytes"
-	"fmt"
 	"math/big"
 	"math/rand"
 	"time"
 )
 
 // Generates a random stabilization time
-func randStabilize(conf *Config) time.Duration {
-	min := conf.StabilizeMin
-	max := conf.StabilizeMax
+func RandStabilize(min, max time.Duration) time.Duration {
 	r := rand.Float64()
 	return time.Duration((r * float64(max-min)) + float64(min))
 }
 
-// Checks if a key is STRICTLY between two ID's exclusively
-func between(id1, id2, key []byte) bool {
+// Checks if a key is STRICTLY Between two ID's exclusively
+func Between(id1, id2, key []byte) bool {
 	// Check for ring wrap around
 	if bytes.Compare(id1, id2) == 1 {
 		return bytes.Compare(id1, key) == -1 ||
@@ -29,8 +26,8 @@ func between(id1, id2, key []byte) bool {
 		bytes.Compare(id2, key) == 1
 }
 
-// Checks if a key is between two ID's, right inclusive
-func betweenRightIncl(id1, id2, key []byte) bool {
+// Checks if a key is Between two ID's, right inclusive
+func BetweenRightIncl(id1, id2, key []byte) bool {
 	// Check for ring wrap around
 	if bytes.Compare(id1, id2) == 1 {
 		return bytes.Compare(id1, key) == -1 ||
@@ -42,7 +39,7 @@ func betweenRightIncl(id1, id2, key []byte) bool {
 }
 
 // Computes the offset by (n + 2^exp) % (2^mod)
-func powerOffset(id []byte, exp int, mod int) []byte {
+func PowerOffset(id []byte, exp int, mod int) []byte {
 	// Copy the existing slice
 	off := make([]byte, len(id))
 	copy(off, id)
@@ -72,7 +69,7 @@ func powerOffset(id []byte, exp int, mod int) []byte {
 }
 
 // max returns the max of two ints
-func max(a, b int) int {
+func Max(a, b int) int {
 	if a >= b {
 		return a
 	} else {
@@ -81,32 +78,10 @@ func max(a, b int) int {
 }
 
 // min returns the min of two ints
-func min(a, b int) int {
+func Min(a, b int) int {
 	if a <= b {
 		return a
 	} else {
 		return b
-	}
-}
-
-// Returns the vnode nearest a key
-func nearestVnodeToKey(vnodes []*Vnode, key []byte) *Vnode {
-	for i := len(vnodes) - 1; i >= 0; i-- {
-		if bytes.Compare(vnodes[i].Id, key) == -1 {
-			return vnodes[i]
-		}
-	}
-	// Return the last vnode
-	return vnodes[len(vnodes)-1]
-}
-
-// Merges errors together
-func mergeErrors(err1, err2 error) error {
-	if err1 == nil {
-		return err2
-	} else if err2 == nil {
-		return err1
-	} else {
-		return fmt.Errorf("%s\n%s", err1, err2)
 	}
 }
