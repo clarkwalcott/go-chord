@@ -29,23 +29,17 @@ type Transport interface {
 	SkipSuccessor(target, self *vnode.Vnode) error
 
 	// Register for an RPC callbacks
-	Register(*vnode.Vnode, VnodeRPC)
+	Register(*vnode.Vnode)
 }
 
 // These are the methods to invoke on the registered vnodes
-type VnodeRPC interface {
-	GetPredecessor() (*vnode.Vnode, error)
-	Notify(*LocalTransport, *vnode.Vnode) ([]*vnode.Vnode, error)
-	FindSuccessors(*LocalTransport, int, []byte) ([]*vnode.Vnode, error)
-	ClearPredecessor(*vnode.Vnode) error
-	SkipSuccessor(*vnode.Vnode) error
-}
-
-// Wraps vnode and object
-type localRPC struct {
-	vnode *vnode.Vnode
-	obj   VnodeRPC
-}
+//type VnodeRPC interface {
+//	GetPredecessor() (*vnode.Vnode, error)
+//	Notify(*vnode.Vnode) ([]*vnode.Vnode, error)
+//	FindSuccessors(int, []byte) ([]*vnode.Vnode, error)
+//	ClearPredecessor(*vnode.Vnode) error
+//	SkipSuccessor(*vnode.Vnode) error
+//}
 
 // LocalTransport is used to provides fast routing to Vnodes running
 // locally using direct method calls. For any non-local vnodes, the
@@ -54,7 +48,7 @@ type LocalTransport struct {
 	host   string
 	remote Transport
 	lock   sync.RWMutex
-	local  map[string]*localRPC
+	local  map[string]*vnode.Vnode
 }
 
 // Creates a local transport to wrap a remote transport
@@ -64,18 +58,18 @@ func InitLocalTransport(remote Transport) Transport {
 		remote = &BlackholeTransport{}
 	}
 
-	local := make(map[string]*localRPC)
+	local := make(map[string]*vnode.Vnode)
 	return &LocalTransport{remote: remote, local: local}
 }
 
 // Checks for a local vnode
-func (lt *LocalTransport) get(vn *vnode.Vnode) (VnodeRPC, bool) {
+func (lt *LocalTransport) get(vn *vnode.Vnode) (*vnode.Vnode, bool) {
 	key := vn.String()
 	lt.lock.RLock()
 	defer lt.lock.RUnlock()
 	w, ok := lt.local[key]
 	if ok {
-		return w.obj, ok
+		return w, ok
 	} else {
 		return nil, ok
 	}
@@ -90,7 +84,7 @@ func (lt *LocalTransport) ListVnodes(host string) ([]*vnode.Vnode, error) {
 		// Build list
 		lt.lock.RLock()
 		for _, v := range lt.local {
-			res = append(res, v.vnode)
+			res = append(res, v)
 		}
 		lt.lock.RUnlock()
 
@@ -133,7 +127,7 @@ func (lt *LocalTransport) Notify(vn, self *vnode.Vnode) ([]*vnode.Vnode, error) 
 
 	// If it exists locally, handle it
 	if ok {
-		return obj.Notify(lt, self)
+		return lt.Notify(obj, self)
 	}
 
 	// Pass onto remote
@@ -146,7 +140,7 @@ func (lt *LocalTransport) FindSuccessors(vn *vnode.Vnode, n int, key []byte) ([]
 
 	// If it exists locally, handle it
 	if ok {
-		return obj.FindSuccessors(lt, n, key)
+		return lt.FindSuccessors(obj, n, key)
 	}
 
 	// Pass onto remote
@@ -179,16 +173,16 @@ func (lt *LocalTransport) SkipSuccessor(target, self *vnode.Vnode) error {
 	return lt.remote.SkipSuccessor(target, self)
 }
 
-func (lt *LocalTransport) Register(v *vnode.Vnode, o VnodeRPC) {
+func (lt *LocalTransport) Register(v *vnode.Vnode) {
 	// Register local instance
 	key := v.String()
 	lt.lock.Lock()
 	lt.host = v.Host
-	lt.local[key] = &localRPC{v, o}
+	lt.local[key] = v
 	lt.lock.Unlock()
 
 	// Register with remote transport
-	lt.remote.Register(v, o)
+	lt.remote.Register(v)
 }
 
 func (lt *LocalTransport) Deregister(v *vnode.Vnode) {
@@ -197,5 +191,3 @@ func (lt *LocalTransport) Deregister(v *vnode.Vnode) {
 	delete(lt.local, key)
 	lt.lock.Unlock()
 }
-
-

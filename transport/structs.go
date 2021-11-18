@@ -11,7 +11,7 @@ type BlackholeTransport struct {
 }
 
 func (*BlackholeTransport) ListVnodes(host string) ([]*vnode.Vnode, error) {
-	return nil, fmt.Errorf("Failed to connect! Blackhole: %s.", host)
+	return nil, fmt.Errorf("failed to connect! Blackhole: %s", host)
 }
 
 func (trans *BlackholeTransport) Ping(vn *vnode.Vnode) (bool, error) {
@@ -19,24 +19,24 @@ func (trans *BlackholeTransport) Ping(vn *vnode.Vnode) (bool, error) {
 }
 
 func (*BlackholeTransport) GetPredecessor(vn *vnode.Vnode) (*vnode.Vnode, error) {
-	return nil, fmt.Errorf("Failed to connect! Blackhole: %s.", vn.String())
+	return nil, fmt.Errorf("failed to connect! Blackhole: %s", vn.String())
 }
 
 func (*BlackholeTransport) Notify(vn, self *vnode.Vnode) ([]*vnode.Vnode, error) {
-	return nil, fmt.Errorf("Failed to connect! Blackhole: %s", vn.String())
+	return nil, fmt.Errorf("failed to connect! Blackhole: %s", vn.String())
 }
 
 func (*BlackholeTransport) FindSuccessors(vn *vnode.Vnode, n int, key []byte) ([]*vnode.Vnode, error) {
-	return nil, fmt.Errorf("Failed to connect! Blackhole: %s", vn.String())
+	return nil, fmt.Errorf("failed to connect! Blackhole: %s", vn.String())
 }
 
 func (*BlackholeTransport) ClearPredecessor(target, self *vnode.Vnode) error {
-	return fmt.Errorf("Failed to connect! Blackhole: %s", target.String())
+	return fmt.Errorf("failed to connect! Blackhole: %s", target.String())
 }
 
 func (*BlackholeTransport) SkipSuccessor(target, self *vnode.Vnode) error {
-	return fmt.Errorf("Failed to connect! Blackhole: %s", target.String())
+	return fmt.Errorf("failed to connect! Blackhole: %s", target.String())
 }
 
-func (*BlackholeTransport) Register(v *vnode.Vnode, o VnodeRPC) {
+func (*BlackholeTransport) Register(v *vnode.Vnode) {
 }

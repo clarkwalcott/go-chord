@@ -80,13 +80,13 @@ func (ml *MultiLocalTrans) SkipSuccessor(target, self *vnode.Vnode) error {
 	return ml.remote.SkipSuccessor(target, self)
 }
 
-func (ml *MultiLocalTrans) Register(v *vnode.Vnode, o transport.VnodeRPC) {
+func (ml *MultiLocalTrans) Register(v *vnode.Vnode) {
 	local, ok := ml.hosts[v.Host]
 	if !ok {
 		local = transport.InitLocalTransport(nil).(*transport.LocalTransport)
 		ml.hosts[v.Host] = local
 	}
-	local.Register(v, o)
+	local.Register(v)
 }
 
 func (ml *MultiLocalTrans) Deregister(host string) {
@@ -112,6 +112,18 @@ func makeRing() *Ring {
 
 	ring, _ := New(conf, nil)
 	return ring
+}
+
+func makeVnode(idx int) *vnode.Vnode {
+	min := 10 * time.Second
+	max := 30 * time.Second
+	conf := &Config{
+		NumSuccessors: 8,
+		StabilizeMin:  min,
+		StabilizeMax:  max,
+		HashFunc:      sha1.New(),
+	}
+	return vnode.New(idx, conf.Hostname, conf.NumSuccessors, conf.HashBits)
 }
 
 func TestDefaultConfig(t *testing.T) {
@@ -249,7 +261,7 @@ func TestLeave(t *testing.T) {
 	// Verify r2 ring is still in tact
 	num := len(r2.Vnodes)
 	for idx, vn := range r2.Vnodes {
-		if vn.Successors[0] != &r2.Vnodes[(idx+1)%num].Vnode {
+		if vn.Successors[0] != r2.Vnodes[(idx+1)%num] {
 			t.Fatalf("bad successor! Got:%s:%s", vn.Successors[0].Host,
 				vn.Successors[0])
 		}
@@ -390,16 +402,16 @@ func TestRingSetLocalSucc(t *testing.T) {
 
 	// Verify the successor manually for node 3
 	vn := ring.Vnodes[2]
-	if vn.Successors[0] != &ring.Vnodes[3].Vnode {
+	if vn.Successors[0] != ring.Vnodes[3] {
 		t.Fatalf("bad succ!")
 	}
-	if vn.Successors[1] != &ring.Vnodes[4].Vnode {
+	if vn.Successors[1] != ring.Vnodes[4] {
 		t.Fatalf("bad succ!")
 	}
-	if vn.Successors[2] != &ring.Vnodes[0].Vnode {
+	if vn.Successors[2] != ring.Vnodes[0] {
 		t.Fatalf("bad succ!")
 	}
-	if vn.Successors[3] != &ring.Vnodes[1].Vnode {
+	if vn.Successors[3] != ring.Vnodes[1] {
 		t.Fatalf("bad succ!")
 	}
 }
@@ -420,4 +432,49 @@ func TestMergeErrors(t *testing.T) {
 	if MergeErrors(e1, e2).Error() != "test1\ntest2" {
 		t.Fatalf("bad merge")
 	}
+}
+
+func TestVnodeSchedule(t *testing.T) {
+	ring := makeRing()
+	vn := makeVnode(0)
+	Schedule(ring, vn)
+	if vn.Timer == nil {
+		t.Fatalf("unexpected nil")
+	}
+}
+
+func TestVnodeStabilizeShutdown(t *testing.T) {
+	ring := makeRing()
+	vn := makeVnode(0)
+	Schedule(ring, vn)
+	Stabilize(ring, vn)
+
+	if vn.Timer != nil {
+		t.Fatalf("unexpected timer")
+	}
+	if !vn.Stabilized.IsZero() {
+		t.Fatalf("unexpected time")
+	}
+	select {
+	case <-ring.ShutdownCh:
+		return
+	default:
+		t.Fatalf("expected message")
+	}
+}
+
+func TestVnodeStabilizeReschedule(t *testing.T) {
+	ring := makeRing()
+	vn := makeVnode(1)
+	vn.Successors[0] = vn
+	Schedule(ring, vn)
+	Stabilize(ring, vn)
+
+	if vn.Timer == nil {
+		t.Fatalf("expected timer")
+	}
+	if vn.Stabilized.IsZero() {
+		t.Fatalf("expected time")
+	}
+	vn.Timer.Stop()
 }

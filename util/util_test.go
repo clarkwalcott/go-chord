@@ -1,7 +1,6 @@
 package util
 
 import (
-	"github.com/go-chord/ring"
 	"testing"
 	"time"
 )
@@ -9,13 +8,10 @@ import (
 func TestRandStabilize(t *testing.T) {
 	min := 10 * time.Second
 	max := 30 * time.Second
-	conf := &ring.Config{
-		StabilizeMin: min,
-		StabilizeMax: max}
 
 	var times []time.Duration
 	for i := 0; i < 1000; i++ {
-		after := RandStabilize(conf)
+		after := RandStabilize(min, max)
 		times = append(times, after)
 		if after < min {
 			t.Fatalf("after below min")
@@ -35,7 +31,7 @@ func TestRandStabilize(t *testing.T) {
 	}
 
 	if collisions > 3 {
-		t.Fatalf("too many collisions! %d", collisions)
+		t.Fatalf("too many collisions %d", collisions)
 	}
 }
 
